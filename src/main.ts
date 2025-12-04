@@ -1,7 +1,7 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
 
-async function run(): Promise<void> {
+async function startWorkflow(): Promise<void> {
   const inputs = {
     workflowId: core.getInput('workflowId'),
     repository:
@@ -14,7 +14,7 @@ async function run(): Promise<void> {
       .getInput('successStatuses')
       .split(',')
       .map(status => status.trim()),
-    token: core.getInput('github-token', {required: true})
+    token: core.getInput('github-token', { required: true })
   }
   const octokit = github.getOctokit(inputs.token)
   const [owner, repo] = inputs.repository.split('/')
@@ -34,36 +34,37 @@ async function run(): Promise<void> {
       }
     )
 
-    const latestWorkflowRun = response.data.workflow_runs[0]
-    const latestRunStatus = latestWorkflowRun.status
-    const latestRunConclusion = latestWorkflowRun.conclusion
+    const latestWorkflowRun = response.data.workflow_runs?.[0]
     const totalCounts = response.data.total_count
 
-    if (totalCounts > 0) {
-      if (latestRunStatus === 'completed') {
-        if (
-          latestRunConclusion &&
-          inputs.successStatuses.includes(latestRunConclusion)
-        ) {
-          core.debug(
-            `Latest run of the given workflow allows continuation [${latestRunConclusion}]`
-          )
-          break
-        } else if (latestRunConclusion === 'failure') {
-          core.setFailed('Latest run of the given workflow was a failure')
-          process.exit(1)
-        } else {
-          core.setFailed(
-            `Latest run of the given workflow was not successful [${latestRunStatus}]`
-          )
-          process.exit(1)
-        }
-      } else {
-        core.debug(`Wait because status is ${latestRunStatus}`)
-      }
-    } else {
+    if (totalCounts === 0) {
       core.debug('No runs of the given workflow found')
       break
+    }
+
+    const latestRunStatus = latestWorkflowRun?.status
+    const latestRunConclusion = latestWorkflowRun?.conclusion
+
+    if (latestRunStatus === 'completed') {
+      if (
+        latestRunConclusion &&
+        inputs.successStatuses.includes(latestRunConclusion)
+      ) {
+        core.debug(
+          `Latest run of the given workflow allows continuation [${latestRunConclusion}]`
+        )
+        break
+      } else if (latestRunConclusion === 'failure') {
+        core.setFailed('Latest run of the given workflow was a failure')
+        process.exit(1)
+      } else {
+        core.setFailed(
+          `Latest run of the given workflow was not successful [${latestRunStatus}]`
+        )
+        process.exit(1)
+      }
+    } else {
+      core.debug(`Wait because status is ${latestRunStatus}`)
     }
 
     elapsedTimeSeconds += inputs.retryIntervalSeconds
@@ -89,12 +90,11 @@ export async function sleep(seconds: number): Promise<void> {
   })
 }
 
-;(async () => {
+export async function run(): Promise<void> {
   try {
-    await run()
+    await startWorkflow()
   } catch (error) {
-    if (error instanceof Error) {
-      core.setFailed(error.message)
-    }
+    // Fail the workflow run if an error occurs
+    if (error instanceof Error) core.setFailed(error.message)
   }
-})()
+}
